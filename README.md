@@ -15,6 +15,34 @@ make check
 go run ./cmd/aixgo-sync version
 ```
 
+## Production Docker Image (Multi-stage Scratch)
+
+For maximum security and minimal attack surface, the production container is built using a multi-stage `Dockerfile` and runs on a minimal `scratch` image.
+
+### Why Scratch + CA Certificates?
+- **`scratch`** is an empty image, providing a minimal runtime surface with zero unneeded libraries or utilities (reducing potential CVEs).
+- Since `scratch` lacks a certificate trust store, we explicitly pull fresh CA certificates from `alpine:latest` and copy them into `/etc/ssl/certs/ca-certificates.crt`.
+- This ensures that outbound HTTPS/TLS requests (e.g., to S3, Cloudflare R2, or GitHub APIs) succeed seamlessly. The `SSL_CERT_FILE` environment variable is set to point to this certificate bundle.
+
+### Build and Run Locally
+
+To build the image using the Makefile target:
+```bash
+make docker
+```
+
+Or build manually:
+```bash
+docker build -t aixgo-sync:local .
+```
+
+To run the container locally:
+```bash
+docker run --rm -p 8080:8080 aixgo-sync:local
+```
+
+The server health endpoint will be available at `http://localhost:8080/healthz`.
+
 ## S3-Compatible / Cloudflare R2 Storage Config
 
 `S3Store` implements a CAS-enabled key-value store on S3-compatible backend APIs, such as AWS S3 or Cloudflare R2. It is configured entirely via environment variables.

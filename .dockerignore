@@ -1,0 +1,24 @@
+# Ignore git directories
+.git
+.github
+
+# Ignore Go build caches and path directories
+.gocache
+.gopath
+
+# Ignore local builds
+bin/
+
+# Ignore test artifacts and coverage outputs
+*.test
+*.out
+coverage.*
+*.coverprofile
+profile.cov
+
+# Ignore Go workspace files
+go.work
+go.work.sum
+
+# Ignore local environment files
+.env
