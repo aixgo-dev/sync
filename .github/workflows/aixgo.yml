@@ -1,6 +1,7 @@
 # Sync dogfood caller — Vertex Gemini only (no Azure / Codex).
 # Pins the reusable workflow to the Aixgo Code release that includes Gemini
 # and engine-aware init (v0.6.0+).
+# Gemini 3.x models (e.g. gemini-3.5-flash) need the Vertex global endpoint.
 name: aixgo
 
 on:
@@ -21,7 +22,7 @@ jobs:
       issue-number: ${{ github.event.issue.number }}
       actor-login: ${{ github.event.sender.login }}
       vertex-project: ${{ vars.AIXGO_VERTEX_PROJECT }}
-      vertex-location: ${{ vars.AIXGO_VERTEX_LOCATION }}
+      vertex-location: global
       model: gemini-3.5-flash
     secrets:
       vertex-api-key: ${{ secrets.AIXGO_VERTEX_API_KEY }}
@@ -38,7 +39,7 @@ jobs:
       pr-number: ${{ github.event.pull_request.number }}
       actor-login: ${{ github.event.review.user.login }}
       vertex-project: ${{ vars.AIXGO_VERTEX_PROJECT }}
-      vertex-location: ${{ vars.AIXGO_VERTEX_LOCATION }}
+      vertex-location: global
       model: gemini-3.5-flash
     secrets:
       vertex-api-key: ${{ secrets.AIXGO_VERTEX_API_KEY }}
@@ -59,7 +60,7 @@ jobs:
       pr-number: ${{ github.event.issue.pull_request != null && github.event.issue.number || '' }}
       actor-login: ${{ github.event.comment.user.login }}
       vertex-project: ${{ vars.AIXGO_VERTEX_PROJECT }}
-      vertex-location: ${{ vars.AIXGO_VERTEX_LOCATION }}
+      vertex-location: global
       model: gemini-3.5-flash
     secrets:
       vertex-api-key: ${{ secrets.AIXGO_VERTEX_API_KEY }}
