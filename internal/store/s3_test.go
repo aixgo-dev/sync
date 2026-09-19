@@ -143,6 +143,29 @@ func (m *mockS3Client) DeleteObject(ctx context.Context, params *s3.DeleteObject
 	return &s3.DeleteObjectOutput{}, nil
 }
 
+func (m *mockS3Client) ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var contents []types.Object
+	prefix := ""
+	if params.Prefix != nil {
+		prefix = *params.Prefix
+	}
+
+	for k := range m.objects {
+		if strings.HasPrefix(k, prefix) {
+			contents = append(contents, types.Object{
+				Key: aws.String(k),
+			})
+		}
+	}
+
+	return &s3.ListObjectsV2Output{
+		Contents: contents,
+	}, nil
+}
+
 // We need fmt and strings in this file too
 
 func TestS3Store_Unit(t *testing.T) {
@@ -319,4 +342,25 @@ func generateTestSuffix() string {
 		importRand[i] = importBytes[(importSeq+i)%len(importBytes)]
 	}
 	return string(importRand)
+}
+
+func TestS3Store_List(t *testing.T) {
+	ctx := context.Background()
+	mockClient := newMockS3Client()
+	store := NewS3Store(mockClient, "test-bucket", "test-prefix/")
+
+	// Put some keys
+	_, _ = store.Put(ctx, "prefix/a", []byte("a"), "")
+	_, _ = store.Put(ctx, "prefix/b", []byte("b"), "")
+	_, _ = store.Put(ctx, "other/c", []byte("c"), "")
+
+	keys, err := store.List(ctx, "prefix/")
+	if err != nil {
+		t.Fatalf("unexpected list error: %v", err)
+	}
+
+	expected := []string{"prefix/a", "prefix/b"}
+	if len(keys) != 2 || keys[0] != expected[0] || keys[1] != expected[1] {
+		t.Fatalf("expected keys %v, got %v", expected, keys)
+	}
 }
