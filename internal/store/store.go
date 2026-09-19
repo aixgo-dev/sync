@@ -44,4 +44,8 @@ type Store interface {
 	// must match ifMatch. If the key does not exist, Delete returns ErrNotFound.
 	// If the key exists but the ETag does not match, Delete returns ErrPreconditionFailed.
 	Delete(ctx context.Context, key string, ifMatch string) error
+
+	// List retrieves all keys starting with the given prefix.
+	// The returned keys are relative to the store (i.e. without the S3 prefix, if configured).
+	List(ctx context.Context, prefix string) (keys []string, err error)
 }

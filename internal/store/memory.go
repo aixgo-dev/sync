@@ -4,6 +4,8 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"sort"
+	"strings"
 	"sync"
 )
 
@@ -130,6 +132,27 @@ func (s *MemoryStore) Delete(ctx context.Context, key string, ifMatch string) er
 
 	delete(s.records, key)
 	return nil
+}
+
+// List retrieves all keys starting with the given prefix.
+// The returned keys are sorted alphabetically to ensure stability.
+func (s *MemoryStore) List(ctx context.Context, prefix string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	var keys []string
+	for k := range s.records {
+		if strings.HasPrefix(k, prefix) {
+			keys = append(keys, k)
+		}
+	}
+
+	sort.Strings(keys)
+	return keys, nil
 }
 
 func generateETag() (string, error) {

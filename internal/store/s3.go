@@ -23,6 +23,7 @@ type S3API interface {
 	PutObject(ctx context.Context, params *s3.PutObjectInput, optFns ...func(*s3.Options)) (*s3.PutObjectOutput, error)
 	HeadObject(ctx context.Context, params *s3.HeadObjectInput, optFns ...func(*s3.Options)) (*s3.HeadObjectOutput, error)
 	DeleteObject(ctx context.Context, params *s3.DeleteObjectInput, optFns ...func(*s3.Options)) (*s3.DeleteObjectOutput, error)
+	ListObjectsV2(ctx context.Context, params *s3.ListObjectsV2Input, optFns ...func(*s3.Options)) (*s3.ListObjectsV2Output, error)
 }
 
 // S3Store implements the Store interface using an S3-compatible backend.
@@ -248,6 +249,47 @@ func (s *S3Store) Delete(ctx context.Context, key string, ifMatch string) error 
 	}
 
 	return nil
+}
+
+// List retrieves all keys starting with the given prefix.
+// The returned keys are relative to the store (i.e. without the S3 prefix, if configured).
+func (s *S3Store) List(ctx context.Context, prefix string) ([]string, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+
+	sprefix := s.resolveKey(prefix)
+	var keys []string
+	var continuationToken *string
+
+	for {
+		resp, err := s.client.ListObjectsV2(ctx, &s3.ListObjectsV2Input{
+			Bucket:            aws.String(s.bucket),
+			Prefix:            aws.String(sprefix),
+			ContinuationToken: continuationToken,
+		})
+		if err != nil {
+			return nil, err
+		}
+
+		for _, obj := range resp.Contents {
+			if obj.Key != nil {
+				key := *obj.Key
+				if s.prefix != "" && strings.HasPrefix(key, s.prefix) {
+					key = strings.TrimPrefix(key, s.prefix)
+				}
+				keys = append(keys, key)
+			}
+		}
+
+		if resp.IsTruncated != nil && *resp.IsTruncated {
+			continuationToken = resp.NextContinuationToken
+		} else {
+			break
+		}
+	}
+
+	return keys, nil
 }
 
 // sanitizeETag strips the surrounding double quotes from an ETag.

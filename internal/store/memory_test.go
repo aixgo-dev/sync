@@ -239,3 +239,24 @@ func TestMemoryStore_ContextCancellation(t *testing.T) {
 		t.Fatalf("expected context.Canceled, got %v", err)
 	}
 }
+
+func TestMemoryStore_List(t *testing.T) {
+	t.Parallel()
+	s := store.NewMemoryStore()
+	ctx := context.Background()
+
+	// Put some keys with common and different prefixes
+	_, _ = s.Put(ctx, "prefix/a", []byte("a"), "")
+	_, _ = s.Put(ctx, "prefix/b", []byte("b"), "")
+	_, _ = s.Put(ctx, "other/c", []byte("c"), "")
+
+	keys, err := s.List(ctx, "prefix/")
+	if err != nil {
+		t.Fatalf("unexpected list error: %v", err)
+	}
+
+	expected := []string{"prefix/a", "prefix/b"}
+	if len(keys) != 2 || keys[0] != expected[0] || keys[1] != expected[1] {
+		t.Fatalf("expected keys %v, got %v", expected, keys)
+	}
+}
