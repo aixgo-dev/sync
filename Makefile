@@ -1,4 +1,4 @@
-.PHONY: check build
+.PHONY: check build docker
 check:
 	go test ./...
 	go vet ./...
@@ -6,3 +6,6 @@ check:
 
 build:
 	go build -o bin/aixgo-sync ./cmd/aixgo-sync
+
+docker:
+	docker build -t aixgo-sync:local .
