@@ -60,6 +60,34 @@ export SYNC_S3_SECRET_ACCESS_KEY="<your-secret-key>"
 make check
 ```
 
+## Security & Tenant API-Key Authentication
+
+Aixgo Sync enforces tenant isolation at the API layer using project-scoped bearer API keys.
+
+### Authentication Header
+
+All API requests under the `/v1/...` routes must present a valid API key in the `Authorization` header:
+
+```http
+Authorization: Bearer <token>
+```
+
+The `/healthz` endpoint remains completely open and does not require authentication.
+
+### Local/Dev Bootstrapping
+
+To define authorized API keys for local development or testing, configure the `SYNC_API_KEYS` environment variable. The value is a comma-separated list of `org_id:project_id:token` mappings:
+
+```bash
+export SYNC_API_KEYS="orgA:projA:secrettoken1,orgB:projB:secrettoken2"
+```
+
+### Key Security & Scope Enforcement
+
+- **Hashed at Rest:** Plaintext tokens from `SYNC_API_KEYS` are immediately hashed using SHA-256 upon bootstrap. Only the secure hashes are stored in process memory.
+- **Cross-Tenant Protection (403):** The middleware automatically parses the organization and project segments from incoming `/v1/orgs/{org}/projects/{project}/...` request paths and compares them against the authorized scope of the provided API key. If they do not match, the middleware rejects the request with a `403 Forbidden` response.
+- **Context Injection:** Upon successful authentication, the authenticated `org_id` and `project_id` are propagated to downstream handlers via the request context (`auth.ContextKeyOrgID` and `auth.ContextKeyProjectID`).
+
 ## License
 
 Apache-2.0
