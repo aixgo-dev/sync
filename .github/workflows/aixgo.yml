@@ -1,6 +1,6 @@
 # Sync dogfood caller — Vertex Gemini only (no Azure / Codex).
-# Tracks main so vertex-* inputs and the Gemini engine from aixgo-dev/code#145
-# are available. Pin a release tag once a post-Gemini release ships.
+# Pins the reusable workflow to the Aixgo Code release that includes Gemini
+# and engine-aware init (v0.6.0+).
 name: aixgo
 
 on:
@@ -14,7 +14,7 @@ on:
 jobs:
   run:
     if: ${{ github.event_name == 'issues' && github.event.label.name == 'ax:go' }}
-    uses: aixgo-dev/code/.github/workflows/aixgo.yml@main
+    uses: aixgo-dev/code/.github/workflows/aixgo.yml@v0.6.0
     with:
       ref: ${{ github.event.issue.number }}
       github-app-client-id: ${{ vars.AIXGO_GH_APP_CLIENT_ID }}
@@ -30,7 +30,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request_review' &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)
-    uses: aixgo-dev/code/.github/workflows/aixgo.yml@main
+    uses: aixgo-dev/code/.github/workflows/aixgo.yml@v0.6.0
     with:
       ref: ${{ github.event.pull_request.number }}
       github-app-client-id: ${{ vars.AIXGO_GH_APP_CLIENT_ID }}
@@ -48,7 +48,7 @@ jobs:
       github.event.comment.user.type != 'Bot' &&
       startsWith(github.event.comment.body, '@aixgo-code') &&
       contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
-    uses: aixgo-dev/code/.github/workflows/aixgo.yml@main
+    uses: aixgo-dev/code/.github/workflows/aixgo.yml@v0.6.0
     with:
       ref: ${{ github.event.issue.number }}
       github-app-client-id: ${{ vars.AIXGO_GH_APP_CLIENT_ID }}
