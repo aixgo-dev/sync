@@ -22,6 +22,7 @@ jobs:
       actor-login: ${{ github.event.sender.login }}
       vertex-project: ${{ vars.AIXGO_VERTEX_PROJECT }}
       vertex-location: ${{ vars.AIXGO_VERTEX_LOCATION }}
+      model: gemini-3.5-flash
     secrets:
       vertex-api-key: ${{ secrets.AIXGO_VERTEX_API_KEY }}
       github-app-private-key: ${{ secrets.AIXGO_GH_APP_PRIVATE_KEY }}
@@ -38,6 +39,7 @@ jobs:
       actor-login: ${{ github.event.review.user.login }}
       vertex-project: ${{ vars.AIXGO_VERTEX_PROJECT }}
       vertex-location: ${{ vars.AIXGO_VERTEX_LOCATION }}
+      model: gemini-3.5-flash
     secrets:
       vertex-api-key: ${{ secrets.AIXGO_VERTEX_API_KEY }}
       github-app-private-key: ${{ secrets.AIXGO_GH_APP_PRIVATE_KEY }}
@@ -58,6 +60,7 @@ jobs:
       actor-login: ${{ github.event.comment.user.login }}
       vertex-project: ${{ vars.AIXGO_VERTEX_PROJECT }}
       vertex-location: ${{ vars.AIXGO_VERTEX_LOCATION }}
+      model: gemini-3.5-flash
     secrets:
       vertex-api-key: ${{ secrets.AIXGO_VERTEX_API_KEY }}
       github-app-private-key: ${{ secrets.AIXGO_GH_APP_PRIVATE_KEY }}
