@@ -3,21 +3,7 @@ package api
 import (
 	"encoding/json"
 	"net/http"
-
-	"github.com/aixgo-dev/sync/internal/store"
 )
-
-// Server holds the dependencies for the sync API server.
-type Server struct {
-	store store.Store
-}
-
-// NewServer creates a new API Server.
-func NewServer(s store.Store) *Server {
-	return &Server{
-		store: s,
-	}
-}
 
 // Handler returns the HTTP handler for the server.
 func (s *Server) Handler() http.Handler {
