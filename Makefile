@@ -8,4 +8,4 @@ build:
 	go build -o bin/aixgo-sync ./cmd/aixgo-sync
 
 docker:
-	docker build -t aixgo-sync:local .
+	DOCKER_BUILDKIT=1 docker build -t aixgo-sync:local .
