@@ -1,0 +1,63 @@
+# Sync dogfood caller — Vertex Gemini only (no Azure / Codex).
+# Tracks main so vertex-* inputs and the Gemini engine from aixgo-dev/code#145
+# are available. Pin a release tag once a post-Gemini release ships.
+name: aixgo
+
+on:
+  issue_comment:
+    types: [created]
+  issues:
+    types: [labeled]
+  pull_request_review:
+    types: [submitted]
+
+jobs:
+  run:
+    if: ${{ github.event_name == 'issues' && github.event.label.name == 'ax:go' }}
+    uses: aixgo-dev/code/.github/workflows/aixgo.yml@main
+    with:
+      ref: ${{ github.event.issue.number }}
+      github-app-client-id: ${{ vars.AIXGO_GH_APP_CLIENT_ID }}
+      issue-number: ${{ github.event.issue.number }}
+      actor-login: ${{ github.event.sender.login }}
+      vertex-project: ${{ vars.AIXGO_VERTEX_PROJECT }}
+      vertex-location: ${{ vars.AIXGO_VERTEX_LOCATION }}
+    secrets:
+      vertex-api-key: ${{ secrets.AIXGO_VERTEX_API_KEY }}
+      github-app-private-key: ${{ secrets.AIXGO_GH_APP_PRIVATE_KEY }}
+
+  address:
+    if: >-
+      github.event_name == 'pull_request_review' &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.review.author_association)
+    uses: aixgo-dev/code/.github/workflows/aixgo.yml@main
+    with:
+      ref: ${{ github.event.pull_request.number }}
+      github-app-client-id: ${{ vars.AIXGO_GH_APP_CLIENT_ID }}
+      pr-number: ${{ github.event.pull_request.number }}
+      actor-login: ${{ github.event.review.user.login }}
+      vertex-project: ${{ vars.AIXGO_VERTEX_PROJECT }}
+      vertex-location: ${{ vars.AIXGO_VERTEX_LOCATION }}
+    secrets:
+      vertex-api-key: ${{ secrets.AIXGO_VERTEX_API_KEY }}
+      github-app-private-key: ${{ secrets.AIXGO_GH_APP_PRIVATE_KEY }}
+
+  comment:
+    if: >-
+      github.event_name == 'issue_comment' &&
+      github.event.comment.user.type != 'Bot' &&
+      startsWith(github.event.comment.body, '@aixgo-code') &&
+      contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'), github.event.comment.author_association)
+    uses: aixgo-dev/code/.github/workflows/aixgo.yml@main
+    with:
+      ref: ${{ github.event.issue.number }}
+      github-app-client-id: ${{ vars.AIXGO_GH_APP_CLIENT_ID }}
+      comment-body: ${{ github.event.comment.body }}
+      issue-number: ${{ github.event.issue.pull_request == null && github.event.issue.number || '' }}
+      pr-number: ${{ github.event.issue.pull_request != null && github.event.issue.number || '' }}
+      actor-login: ${{ github.event.comment.user.login }}
+      vertex-project: ${{ vars.AIXGO_VERTEX_PROJECT }}
+      vertex-location: ${{ vars.AIXGO_VERTEX_LOCATION }}
+    secrets:
+      vertex-api-key: ${{ secrets.AIXGO_VERTEX_API_KEY }}
+      github-app-private-key: ${{ secrets.AIXGO_GH_APP_PRIVATE_KEY }}

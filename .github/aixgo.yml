@@ -1,0 +1,14 @@
+# Aixgo Code configuration for Sync.
+#
+# Gate matches Makefile: gofmt, go vet, build, tests.
+labelPrefix: ax
+
+# Same App as other Aixgo dogfood repos. Comment commands: "@aixgo-code go".
+appName: aixgo-code
+
+gate: make check
+
+prDescription: rich
+
+# Vertex Gemini only (not Azure OpenAI / Codex).
+engine: gemini
