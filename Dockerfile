@@ -12,10 +12,14 @@ RUN go mod download
 # Copy the source code
 COPY . .
 
+# Stamp Version via ldflags (same pattern as aixgo-dev/code). Default keeps
+# untagged/CI builds identifiable when --build-arg VERSION is omitted.
+ARG VERSION=0.0.0-dev
+
 # Build the statically linked binary
 # Disable CGO to ensure it doesn't depend on glibc, and build for Linux
 RUN CGO_ENABLED=0 GOOS=linux go build \
-    -ldflags="-s -w" \
+    -ldflags="-s -w -X github.com/aixgo-dev/sync/internal/version.Version=${VERSION}" \
     -o /aixgo-sync \
     ./cmd/aixgo-sync
 
