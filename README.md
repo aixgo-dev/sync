@@ -33,7 +33,7 @@ make docker
 
 Or build manually:
 ```bash
-DOCKER_BUILDKIT=1 docker build -t aixgo-sync:local .
+docker build -t aixgo-sync:local .
 ```
 
 To run the container locally:
