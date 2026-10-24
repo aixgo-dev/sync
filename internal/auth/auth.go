@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"net/http"
+	"path"
 	"strings"
 )
 
@@ -83,38 +84,47 @@ func (s *KeyStore) Lookup(token string) (KeyScope, bool) {
 	return scope, ok
 }
 
-// parseOrgAndProject parses org and project from path `/v1/orgs/{org}/projects/{project}/...`
-func parseOrgAndProject(path string) (string, string) {
-	if !strings.HasPrefix(path, "/v1/orgs/") {
-		return "", ""
+// Len returns the number of configured API keys.
+func (s *KeyStore) Len() int {
+	return len(s.hashes)
+}
+
+// parseOrgAndProject parses org and project from a tenant-scoped path of the
+// form `/v1/orgs/{org}/projects/{project}/...`. ok is false when the path is
+// not tenant-scoped, or when either segment is empty or contains characters
+// that could be interpreted differently by the router (e.g. percent-encoded
+// slashes).
+func parseOrgAndProject(escapedPath string) (org, project string, ok bool) {
+	parts := strings.Split(escapedPath, "/")
+	// parts[0] is "" (before first slash), parts[1] "v1", parts[2] "orgs",
+	// parts[3] the {org}, parts[4] "projects", parts[5] the {project}.
+	if len(parts) < 6 || parts[0] != "" || parts[1] != "v1" || parts[2] != "orgs" || parts[4] != "projects" {
+		return "", "", false
 	}
-	parts := strings.Split(path, "/")
-	// parts[0] is "" (before first slash)
-	// parts[1] is "v1"
-	// parts[2] is "orgs"
-	// parts[3] is the {org}
-	// parts[4] is "projects"
-	// parts[5] is the {project}
-	if len(parts) >= 6 && parts[4] == "projects" {
-		return parts[3], parts[5]
+	org, project = parts[3], parts[5]
+	if org == "" || project == "" || strings.Contains(org, "%") || strings.Contains(project, "%") {
+		return "", "", false
 	}
-	return "", ""
+	return org, project, true
 }
 
 // Middleware returns an HTTP middleware that performs API-key authentication.
-// - Header: Authorization: Bearer <token>
-// - On success, context carries org_id and project_id
-// - URL org/project (retrieved from path) must match authenticated scope -> else 403
+//
+// The policy is deny-by-default:
+//   - /healthz (exact path, any method) is the only unauthenticated route.
+//   - Every other path requires `Authorization: Bearer <token>` with a known
+//     key; otherwise the response is 401.
+//   - After authentication, the request path must be tenant-scoped, i.e. of the
+//     form /v1/orgs/{org}/projects/{project}/..., and {org}/{project} must equal
+//     the key's scope. A path that is not tenant-scoped (no org or project, or
+//     any non-/v1 path) is rejected with 403, as is a mismatching org or
+//     project. Finally, a tenant-scoped path that is not canonical (e.g.
+//     containing "..", "//" or a trailing slash) is rejected with 400.
+//   - On success, the context carries org_id and project_id.
 func (s *KeyStore) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Leave /healthz open (does not need authentication)
 		if r.URL.Path == "/healthz" {
-			next.ServeHTTP(w, r)
-			return
-		}
-
-		// Reject missing/invalid keys on /v1/... routes
-		if !strings.HasPrefix(r.URL.Path, "/v1/") {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -131,21 +141,35 @@ func (s *KeyStore) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
-		token := parts[1]
+		token := strings.TrimSpace(parts[1])
 		scope, exists := s.Lookup(token)
 		if !exists {
 			http.Error(w, "Unauthorized: invalid API key", http.StatusUnauthorized)
 			return
 		}
 
-		// URL org/project must match authenticated scope -> else 403
-		urlOrg, urlProject := parseOrgAndProject(r.URL.Path)
-		if urlOrg != "" && urlOrg != scope.OrgID {
+		escaped := r.URL.EscapedPath()
+
+		// Deny by default: the path must carry an org and project, and they must
+		// match the authenticated scope.
+		urlOrg, urlProject, ok := parseOrgAndProject(escaped)
+		if !ok {
+			http.Error(w, "Forbidden: route is not tenant-scoped", http.StatusForbidden)
+			return
+		}
+		if urlOrg != scope.OrgID {
 			http.Error(w, "Forbidden: tenant organization mismatch", http.StatusForbidden)
 			return
 		}
-		if urlProject != "" && urlProject != scope.ProjectID {
+		if urlProject != scope.ProjectID {
 			http.Error(w, "Forbidden: tenant project mismatch", http.StatusForbidden)
+			return
+		}
+
+		// Reject paths the router would clean or redirect, so the segments checked
+		// here are exactly the ones the handlers will see.
+		if path.Clean(escaped) != escaped {
+			http.Error(w, "Bad Request: non-canonical path", http.StatusBadRequest)
 			return
 		}
 

@@ -7,7 +7,9 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"time"
 
+	"github.com/aixgo-dev/sync/internal/auth"
 	"github.com/aixgo-dev/sync/internal/server"
 	"github.com/aixgo-dev/sync/internal/store"
 	"github.com/aixgo-dev/sync/internal/version"
@@ -60,10 +62,56 @@ func main() {
 	// Format host:port cleanly
 	addr := net.JoinHostPort("0.0.0.0", port)
 
-	srv := server.NewServer(activeStore)
-	log.Printf("Starting aixgo-sync server on %s (version: %s)...", addr, version.Version)
+	handler, err := buildHandler(activeStore, os.Getenv)
+	if err != nil {
+		log.Fatalf("Refusing to start: %v", err)
+	}
 
-	if err := http.ListenAndServe(addr, srv.Handler()); err != nil {
+	httpSrv := &http.Server{
+		Addr:              addr,
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      60 * time.Second,
+		IdleTimeout:       120 * time.Second,
+	}
+
+	log.Printf("Starting aixgo-sync server on %s (version: %s)...", addr, version.Version)
+	if err := httpSrv.ListenAndServe(); err != nil {
 		log.Fatalf("Server failed: %v", err)
 	}
+}
+
+// Environment variables controlling authentication.
+const (
+	// envAPIKeys holds comma-separated org:project:token entries.
+	envAPIKeys = "SYNC_API_KEYS"
+	// envInsecureNoAuth, when set to "1" or "true", lets the server start with
+	// no API keys and no authentication. Intended for local development only.
+	envInsecureNoAuth = "SYNC_INSECURE_NO_AUTH"
+)
+
+// buildHandler assembles the HTTP handler served by the binary. All /v1 routes
+// are wrapped in API-key authentication; /healthz stays open. If no API keys
+// are configured it returns an error, unless SYNC_INSECURE_NO_AUTH is set, in
+// which case authentication is disabled and a warning is logged.
+func buildHandler(st store.Store, getenv func(string) string) (http.Handler, error) {
+	api := server.NewServer(st).Handler()
+
+	keyStore, err := auth.NewKeyStore(getenv(envAPIKeys))
+	if err != nil {
+		return nil, fmt.Errorf("invalid %s: %w", envAPIKeys, err)
+	}
+
+	if keyStore.Len() == 0 {
+		switch getenv(envInsecureNoAuth) {
+		case "1", "true":
+			log.Printf("WARNING: %s is set and no %s configured: authentication is DISABLED. Use for local development only.", envInsecureNoAuth, envAPIKeys)
+			return api, nil
+		default:
+			return nil, fmt.Errorf("no API keys configured: set %s (org:project:token,...) or, for local development only, set %s=1", envAPIKeys, envInsecureNoAuth)
+		}
+	}
+
+	return keyStore.Middleware(api), nil
 }

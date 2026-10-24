@@ -12,11 +12,12 @@ Multi-tenant coordination plane for the Aixgo ecosystem. Durable JSON for sessio
 
 - **CAS store** — durable JSON objects in memory or on S3-compatible backends (Cloudflare R2 ready), with compare-and-swap / ETag
 - **Tenant key layout** — org → project object keys for sessions, thread messages, jobs, and desired-state docs
-- **HTTP API (serve path)**
-  - `GET /healthz`
+- **HTTP API (serve path)**, all `/v1` routes behind tenant API-key auth
+  - `GET /healthz` (open, no key required)
   - Sessions: `GET` / `PUT` with CAS via `If-Match` / ETag
   - Thread messages: `POST` append, `GET` list
-- **Jobs + auth packages** — jobs create/get/CAS claim and project-scoped bearer API keys (`SYNC_API_KEYS`, SHA-256 hashed in memory, cross-tenant `403`) are implemented and tested; wire them into the serve mux as you harden the binary
+  - Jobs: `POST` create, `GET` by id, `POST .../claim` (CAS)
+- **Tenant API-key auth** — project-scoped bearer keys (`SYNC_API_KEYS`, SHA-256 hashed in memory, cross-tenant `403`), deny-by-default, enforced on the running binary
 - **Packaging** — multi-stage `scratch` image with CA certs for outbound TLS; `make check`, `make build`, `make docker`
 
 ## Develop
@@ -31,10 +32,23 @@ make build
 
 Default serve uses an in-memory store. Set `SYNC_S3_BUCKET` (and related vars below) to back the process with S3/R2. Listen port: `SYNC_PORT` or `PORT` (default `8080`).
 
+Authentication is required. The server refuses to start unless `SYNC_API_KEYS` is set (see [Auth](#auth-tenant-api-keys)):
+
 ```bash
+export SYNC_API_KEYS="myorg:myproject:change-me"
 go run ./cmd/aixgo-sync serve
 # or
 go run ./cmd/aixgo-sync
+```
+
+For throwaway local development only, you can start without keys by setting `SYNC_INSECURE_NO_AUTH=1`; all `/v1` routes are then unauthenticated and a warning is logged.
+
+Quick smoke test:
+
+```bash
+curl -s localhost:8080/healthz
+curl -s -X POST -H "Authorization: Bearer change-me" -d '{"kind":"command"}' \
+  localhost:8080/v1/orgs/myorg/projects/myproject/jobs
 ```
 
 ## Docker (scratch)
@@ -51,7 +65,7 @@ make docker
 # or
 docker build -t aixgo-sync:local .
 
-docker run --rm -p 8080:8080 aixgo-sync:local
+docker run --rm -p 8080:8080 -e SYNC_API_KEYS="myorg:myproject:change-me" aixgo-sync:local
 ```
 
 Health: `http://localhost:8080/healthz`.
@@ -101,27 +115,43 @@ make check
 
 ## Auth (tenant API keys)
 
-Project-scoped bearer keys live in `internal/auth`. When the middleware is wrapped around the mux, `/v1/...` routes expect:
+The serve path wraps every route in API-key middleware (`internal/auth`). Requests must carry:
 
 ```http
 Authorization: Bearer <token>
 ```
 
-`/healthz` stays open (no auth).
+`/healthz` is the **only** route that does not require a key.
 
-### Local bootstrap
+### Configuring keys
 
-`SYNC_API_KEYS` is a comma-separated list of `org_id:project_id:token` entries:
+`SYNC_API_KEYS` is a comma-separated list of `org_id:project_id:token` entries. Each key grants access to exactly one org + project:
 
 ```bash
 export SYNC_API_KEYS="orgA:projA:secrettoken1,orgB:projB:secrettoken2"
 ```
 
-### Scope enforcement
+| Variable | Description |
+|---|---|
+| `SYNC_API_KEYS` | **Required.** Comma-separated `org_id:project_id:token` entries. Plaintext tokens are SHA-256 hashed at startup; only hashes are kept in memory. A malformed value is a startup error. |
+| `SYNC_INSECURE_NO_AUTH` | Local development only. When set to `1` or `true` **and** `SYNC_API_KEYS` is empty, the server starts with authentication disabled and logs a warning. Ignored when keys are configured. |
 
-- **Hashed at rest** — plaintext tokens from `SYNC_API_KEYS` are SHA-256 hashed at bootstrap; only hashes live in process memory
-- **Cross-tenant 403** — middleware compares the path’s `/v1/orgs/{org}/projects/{project}/...` segments to the key’s org+project scope; mismatch → `403 Forbidden`
-- **Context** — on success, `org_id` and `project_id` are available to handlers via `auth.ContextKeyOrgID` and `auth.ContextKeyProjectID`
+If no keys are configured and `SYNC_INSECURE_NO_AUTH` is not set, the process exits with an error instead of serving unauthenticated.
+
+### Response codes
+
+Auth is deny-by-default. Checks run in this order:
+
+| Condition | Status |
+|---|---|
+| `GET /healthz` | `200` (no key needed) |
+| Missing, malformed, or unknown `Authorization` bearer token (any other path) | `401 Unauthorized` |
+| Valid key, but the path is not of the form `/v1/orgs/{org}/projects/{project}/...` (no org or project, or not under `/v1`) | `403 Forbidden` |
+| Valid key, but `{org}` or `{project}` differs from the key's scope | `403 Forbidden` |
+| Valid key and tenant path, but the path is not canonical (`..`, `//`, trailing `/`) | `400 Bad Request` |
+| Otherwise | request is served; `org_id` and `project_id` are available to handlers via `auth.OrgIDFromContext` / `auth.ProjectIDFromContext` |
+
+Note that unauthenticated requests to unknown paths get `401` rather than `404`, so route existence is not disclosed without a key.
 
 ## Docs
 

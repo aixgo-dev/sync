@@ -44,8 +44,8 @@ func TestNewKeyStore(t *testing.T) {
 
 	// Invalid bootstrap formats
 	invalidFormats := []string{
-		"orgA:projA",             // missing token
-		"orgA::token",            // empty project
+		"orgA:projA",              // missing token
+		"orgA::token",             // empty project
 		":projA:token",            // empty org
 		"orgA:projA:token,badkey", // malformed key in list
 	}
@@ -170,4 +170,86 @@ func TestAuthMiddleware(t *testing.T) {
 			t.Errorf("expected status 403 for cross-tenant access, got %d", rec.Code)
 		}
 	})
+
+	// 6. wrong project within the right org -> 403
+	t.Run("project mismatch 403", func(t *testing.T) {
+		headers := map[string]string{"Authorization": "Bearer tokenA"}
+		rec := runRequest("GET", "/v1/orgs/orgA/projects/projB/sessions/s1", headers)
+		if rec.Code != http.StatusForbidden {
+			t.Errorf("expected status 403 for project mismatch, got %d", rec.Code)
+		}
+	})
+
+	// 7. deny by default: authenticated requests to paths without org/project
+	t.Run("paths without org or project are denied", func(t *testing.T) {
+		headers := map[string]string{"Authorization": "Bearer tokenA"}
+		paths := []string{
+			"/v1/",
+			"/v1/agents",
+			"/v1/agents/a1/sessions",
+			"/v1/orgs",
+			"/v1/orgs/orgA",
+			"/v1/orgs/orgA/projects",
+			"/v1/orgs/orgA/projects/",
+			"/v1/orgs/orgA/devices/d1",
+			"/v1/orgs//projects/projA/sessions/s1",
+			"/v1/orgs/orgA/projects//sessions/s1",
+			"/v2/orgs/orgA/projects/projA/sessions/s1",
+			"/metrics",
+			"/",
+		}
+		for _, p := range paths {
+			rec := runRequest("GET", p, headers)
+			if rec.Code != http.StatusForbidden {
+				t.Errorf("GET %q: expected 403, got %d", p, rec.Code)
+			}
+		}
+	})
+
+	// 8. unauthenticated requests to anything but /healthz are 401, including
+	// non-/v1 paths that used to pass through.
+	t.Run("unauthenticated non-v1 paths are 401", func(t *testing.T) {
+		for _, p := range []string{"/", "/metrics", "/v1/", "/v1/agents", "/healthz/extra", "/healthz/"} {
+			rec := runRequest("GET", p, nil)
+			if rec.Code != http.StatusUnauthorized {
+				t.Errorf("GET %q: expected 401, got %d", p, rec.Code)
+			}
+		}
+	})
+
+	// 9. paths that could be re-interpreted by the router are rejected
+	t.Run("non-canonical and encoded paths", func(t *testing.T) {
+		headers := map[string]string{"Authorization": "Bearer tokenA"}
+		cases := map[string]int{
+			"/v1/orgs/orgA/projects/projA/../../orgB/projects/projB/sessions/s1": http.StatusBadRequest,
+			"/v1/orgs/orgA/projects/projA//sessions/s1":                          http.StatusBadRequest,
+			"/v1/orgs/orgA/projects/projA/sessions/s1/":                          http.StatusBadRequest,
+			"/v1/orgs/orgA%2ForgB/projects/projA/sessions/s1":                    http.StatusForbidden,
+		}
+		for p, want := range cases {
+			rec := runRequest("GET", p, headers)
+			if rec.Code != want {
+				t.Errorf("GET %q: expected %d, got %d", p, want, rec.Code)
+			}
+		}
+	})
+}
+
+func TestKeyStoreLen(t *testing.T) {
+	t.Parallel()
+
+	ks, err := auth.NewKeyStore("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ks.Len() != 0 {
+		t.Errorf("expected 0 keys, got %d", ks.Len())
+	}
+	ks, err = auth.NewKeyStore("a:b:c, d:e:f")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ks.Len() != 2 {
+		t.Errorf("expected 2 keys, got %d", ks.Len())
+	}
 }

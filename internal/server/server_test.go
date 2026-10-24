@@ -385,3 +385,78 @@ func TestServer_Sessions_CAS(t *testing.T) {
 		t.Fatal("expected new ETag to be rotated after successful CAS update")
 	}
 }
+
+// TestServer_Sessions_Shape verifies the unified session shape, including
+// worker_id and labels, round-trips through PUT and GET.
+func TestServer_Sessions_Shape(t *testing.T) {
+	handler := server.NewServer(store.NewMemoryStore()).Handler()
+	path := "/v1/orgs/org1/projects/proj1/sessions/sess-shape"
+
+	body := `{"status":"open","thread_id":"t1","worker_id":"worker-7","labels":{"env":"dev","team":"core"}}`
+	req := httptest.NewRequest("PUT", path, bytes.NewReader([]byte(body)))
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest("GET", path, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d", rr.Code)
+	}
+
+	var got server.Session
+	if err := json.Unmarshal(rr.Body.Bytes(), &got); err != nil {
+		t.Fatalf("decode session: %v", err)
+	}
+	if got.ID != "sess-shape" {
+		t.Errorf("id = %q, want sess-shape (taken from path)", got.ID)
+	}
+	if got.Status != "open" || got.ThreadID != "t1" {
+		t.Errorf("unexpected status/thread: %+v", got)
+	}
+	if got.WorkerID != "worker-7" {
+		t.Errorf("worker_id = %q, want worker-7", got.WorkerID)
+	}
+	if got.Labels["env"] != "dev" || got.Labels["team"] != "core" || len(got.Labels) != 2 {
+		t.Errorf("labels = %v, want env=dev team=core", got.Labels)
+	}
+	if got.CreatedAt == "" || got.UpdatedAt == "" {
+		t.Errorf("expected created_at and updated_at to be set: %+v", got)
+	}
+}
+
+// TestServer_Jobs_Routes verifies the jobs routes are mounted on Handler().
+func TestServer_Jobs_Routes(t *testing.T) {
+	handler := server.NewServer(store.NewMemoryStore()).Handler()
+	base := "/v1/orgs/org1/projects/proj1/jobs"
+
+	rr := httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest("POST", base, bytes.NewReader([]byte(`{"kind":"command","payload":{"cmd":"true"}}`))))
+	if rr.Code != http.StatusCreated {
+		t.Fatalf("create: expected 201, got %d: %s", rr.Code, rr.Body.String())
+	}
+	var job server.Job
+	if err := json.Unmarshal(rr.Body.Bytes(), &job); err != nil {
+		t.Fatal(err)
+	}
+
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest("GET", base+"/"+job.ID, nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("get: expected 200, got %d", rr.Code)
+	}
+
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest("POST", base+"/"+job.ID+"/claim", bytes.NewReader([]byte(`{"worker_id":"w1"}`))))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("claim: expected 200, got %d: %s", rr.Code, rr.Body.String())
+	}
+
+	rr = httptest.NewRecorder()
+	handler.ServeHTTP(rr, httptest.NewRequest("POST", base+"/"+job.ID+"/claim", bytes.NewReader([]byte(`{"worker_id":"w2"}`))))
+	if rr.Code != http.StatusConflict {
+		t.Fatalf("second claim: expected 409, got %d", rr.Code)
+	}
+}
