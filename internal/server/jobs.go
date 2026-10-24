@@ -1,10 +1,11 @@
-package api
+package server
 
 import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -28,28 +29,6 @@ type Job struct {
 	UpdatedAt      string      `json:"updated_at"`
 }
 
-// Server handles the Sync HTTP API.
-type Server struct {
-	store store.Store
-}
-
-// NewServer creates a new API Server instance with the given backing Store.
-func NewServer(s store.Store) *Server {
-	return &Server{store: s}
-}
-
-// NewHandler returns an http.Handler with all API routes registered.
-// Uses Go 1.22+ standard library pattern routing.
-func (s *Server) NewHandler() http.Handler {
-	mux := http.NewServeMux()
-
-	mux.HandleFunc("POST /v1/orgs/{org}/projects/{project}/jobs", s.handleCreateJob)
-	mux.HandleFunc("GET /v1/orgs/{org}/projects/{project}/jobs/{id}", s.handleGetJob)
-	mux.HandleFunc("POST /v1/orgs/{org}/projects/{project}/jobs/{id}/claim", s.handleClaimJob)
-
-	return mux
-}
-
 // CreateJobRequest is the request body for POST /jobs.
 type CreateJobRequest struct {
 	Kind    string      `json:"kind"`
@@ -67,7 +46,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	var req CreateJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, "invalid request body", http.StatusBadRequest)
+		s.errorResponse(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
@@ -76,21 +55,21 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	case "code_offload", "command", "schedule", "custom":
 		// valid
 	default:
-		writeJSONError(w, "invalid job kind: must be 'code_offload', 'command', 'schedule', or 'custom'", http.StatusBadRequest)
+		s.errorResponse(w, http.StatusBadRequest, "invalid job kind: must be 'code_offload', 'command', 'schedule', or 'custom'")
 		return
 	}
 
 	// Generate a unique Job ID
 	jobID, err := generateJobID()
 	if err != nil {
-		writeJSONError(w, "failed to generate job ID", http.StatusInternalServerError)
+		s.errorResponse(w, http.StatusInternalServerError, "failed to generate job ID")
 		return
 	}
 
 	// Validate the IDs by building the Store key
 	key, err := keys.JobKey(org, project, jobID)
 	if err != nil {
-		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		s.errorResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -109,7 +88,7 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 
 	data, err := json.Marshal(job)
 	if err != nil {
-		writeJSONError(w, "failed to serialize job", http.StatusInternalServerError)
+		s.errorResponse(w, http.StatusInternalServerError, "failed to serialize job")
 		return
 	}
 
@@ -117,15 +96,15 @@ func (s *Server) handleCreateJob(w http.ResponseWriter, r *http.Request) {
 	meta, err := s.store.Put(r.Context(), key, data, "")
 	if err != nil {
 		if errors.Is(err, store.ErrAlreadyExists) {
-			writeJSONError(w, "job ID conflict", http.StatusConflict)
+			s.errorResponse(w, http.StatusConflict, "job ID conflict")
 			return
 		}
-		writeJSONError(w, "failed to store job: "+err.Error(), http.StatusInternalServerError)
+		s.errorResponse(w, http.StatusInternalServerError, "failed to store job: "+err.Error())
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("ETag", meta.ETag)
+	w.Header().Set("ETag", fmt.Sprintf(`"%s"`, meta.ETag))
 	w.WriteHeader(http.StatusCreated)
 	_, _ = w.Write(data)
 }
@@ -137,22 +116,22 @@ func (s *Server) handleGetJob(w http.ResponseWriter, r *http.Request) {
 
 	key, err := keys.JobKey(org, project, id)
 	if err != nil {
-		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		s.errorResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
 	data, meta, err := s.store.Get(r.Context(), key)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSONError(w, "job not found", http.StatusNotFound)
+			s.errorResponse(w, http.StatusNotFound, "job not found")
 			return
 		}
-		writeJSONError(w, "failed to retrieve job: "+err.Error(), http.StatusInternalServerError)
+		s.errorResponse(w, http.StatusInternalServerError, "failed to retrieve job: "+err.Error())
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("ETag", meta.ETag)
+	w.Header().Set("ETag", fmt.Sprintf(`"%s"`, meta.ETag))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(data)
 }
@@ -164,18 +143,18 @@ func (s *Server) handleClaimJob(w http.ResponseWriter, r *http.Request) {
 
 	var req ClaimJobRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeJSONError(w, "invalid request body", http.StatusBadRequest)
+		s.errorResponse(w, http.StatusBadRequest, "invalid request body")
 		return
 	}
 
 	if req.WorkerID == "" {
-		writeJSONError(w, "worker_id is required", http.StatusBadRequest)
+		s.errorResponse(w, http.StatusBadRequest, "worker_id is required")
 		return
 	}
 
 	key, err := keys.JobKey(org, project, id)
 	if err != nil {
-		writeJSONError(w, err.Error(), http.StatusBadRequest)
+		s.errorResponse(w, http.StatusBadRequest, err.Error())
 		return
 	}
 
@@ -183,22 +162,22 @@ func (s *Server) handleClaimJob(w http.ResponseWriter, r *http.Request) {
 	data, meta, err := s.store.Get(r.Context(), key)
 	if err != nil {
 		if errors.Is(err, store.ErrNotFound) {
-			writeJSONError(w, "job not found", http.StatusNotFound)
+			s.errorResponse(w, http.StatusNotFound, "job not found")
 			return
 		}
-		writeJSONError(w, "failed to retrieve job: "+err.Error(), http.StatusInternalServerError)
+		s.errorResponse(w, http.StatusInternalServerError, "failed to retrieve job: "+err.Error())
 		return
 	}
 
 	var job Job
 	if err := json.Unmarshal(data, &job); err != nil {
-		writeJSONError(w, "failed to parse job data", http.StatusInternalServerError)
+		s.errorResponse(w, http.StatusInternalServerError, "failed to parse job data")
 		return
 	}
 
 	// 2. Validate state (must be queued)
 	if job.Status != "queued" {
-		writeJSONError(w, "job is already claimed or not in queued state", http.StatusConflict)
+		s.errorResponse(w, http.StatusConflict, "job is already claimed or not in queued state")
 		return
 	}
 
@@ -209,7 +188,7 @@ func (s *Server) handleClaimJob(w http.ResponseWriter, r *http.Request) {
 
 	updatedData, err := json.Marshal(job)
 	if err != nil {
-		writeJSONError(w, "failed to serialize job update", http.StatusInternalServerError)
+		s.errorResponse(w, http.StatusInternalServerError, "failed to serialize job update")
 		return
 	}
 
@@ -217,25 +196,20 @@ func (s *Server) handleClaimJob(w http.ResponseWriter, r *http.Request) {
 	newMeta, err := s.store.Put(r.Context(), key, updatedData, meta.ETag)
 	if err != nil {
 		if errors.Is(err, store.ErrPreconditionFailed) {
-			writeJSONError(w, "concurrent modification conflict", http.StatusPreconditionFailed)
+			s.errorResponse(w, http.StatusPreconditionFailed, "concurrent modification conflict")
 			return
 		}
-		writeJSONError(w, "failed to update job state: "+err.Error(), http.StatusInternalServerError)
+		s.errorResponse(w, http.StatusInternalServerError, "failed to update job state: "+err.Error())
 		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	w.Header().Set("ETag", newMeta.ETag)
+	w.Header().Set("ETag", fmt.Sprintf(`"%s"`, newMeta.ETag))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(updatedData)
 }
 
-func writeJSONError(w http.ResponseWriter, errMsg string, statusCode int) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(statusCode)
-	_ = json.NewEncoder(w).Encode(map[string]string{"error": errMsg})
-}
-
+// generateJobID returns a random 128-bit hex job ID.
 func generateJobID() (string, error) {
 	b := make([]byte, 16)
 	_, err := rand.Read(b)

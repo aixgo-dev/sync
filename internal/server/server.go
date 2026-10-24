@@ -51,6 +51,10 @@ func NewServer(s store.Store) *Server {
 }
 
 // Handler returns the HTTP handler containing all the routed API endpoints.
+//
+// The returned handler performs no authentication itself: callers that expose
+// it on a network must wrap it with auth.KeyStore.Middleware (see
+// cmd/aixgo-sync). Only /healthz is intended to be reachable without a key.
 func (s *Server) Handler() http.Handler {
 	mux := http.NewServeMux()
 
@@ -60,6 +64,11 @@ func (s *Server) Handler() http.Handler {
 	// Messages endpoints
 	mux.HandleFunc("POST /v1/orgs/{org}/projects/{project}/threads/{thread_id}/messages", s.handlePostMessage)
 	mux.HandleFunc("GET /v1/orgs/{org}/projects/{project}/threads/{thread_id}/messages", s.handleGetMessages)
+
+	// Jobs endpoints (create, get, CAS claim)
+	mux.HandleFunc("POST /v1/orgs/{org}/projects/{project}/jobs", s.handleCreateJob)
+	mux.HandleFunc("GET /v1/orgs/{org}/projects/{project}/jobs/{id}", s.handleGetJob)
+	mux.HandleFunc("POST /v1/orgs/{org}/projects/{project}/jobs/{id}/claim", s.handleClaimJob)
 
 	// Sessions endpoints (CAS support)
 	mux.HandleFunc("GET /v1/orgs/{org}/projects/{project}/sessions/{session_id}", s.handleGetSession)

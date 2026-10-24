@@ -1,4 +1,4 @@
-package api
+package server
 
 import (
 	"bytes"
@@ -17,7 +17,7 @@ import (
 func TestCreateAndGet(t *testing.T) {
 	memStore := store.NewMemoryStore()
 	server := NewServer(memStore)
-	handler := server.NewHandler()
+	handler := server.Handler()
 
 	org := "testorg"
 	project := "testproj"
@@ -103,7 +103,7 @@ func TestCreateAndGet(t *testing.T) {
 func TestClaimSuccessPath(t *testing.T) {
 	memStore := store.NewMemoryStore()
 	server := NewServer(memStore)
-	handler := server.NewHandler()
+	handler := server.Handler()
 
 	org := "testorg"
 	project := "testproj"
@@ -169,7 +169,7 @@ func TestClaimSuccessPath(t *testing.T) {
 func TestDoubleClaimFailure(t *testing.T) {
 	memStore := store.NewMemoryStore()
 	server := NewServer(memStore)
-	handler := server.NewHandler()
+	handler := server.Handler()
 
 	org := "testorg"
 	project := "testproj"
@@ -226,7 +226,7 @@ func TestDoubleClaimFailure(t *testing.T) {
 func TestParallelClaimRace(t *testing.T) {
 	memStore := store.NewMemoryStore()
 	server := NewServer(memStore)
-	handler := server.NewHandler()
+	handler := server.Handler()
 
 	org := "testorg"
 	project := "testproj"
@@ -320,7 +320,7 @@ func TestParallelClaimRace(t *testing.T) {
 func TestInvalidJobKind(t *testing.T) {
 	memStore := store.NewMemoryStore()
 	server := NewServer(memStore)
-	handler := server.NewHandler()
+	handler := server.Handler()
 
 	org := "testorg"
 	project := "testproj"
