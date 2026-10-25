@@ -6,11 +6,11 @@ Multi-tenant coordination plane for the Aixgo ecosystem. Durable JSON for sessio
 
 ## Status
 
-**v0.1.0** — first release of the M0/M1 coordination core (CAS store, tenant keys, HTTP sessions/messages, jobs + tenant API-key auth packages). Session attach, notify plane, and Code offload end-to-end come later.
+**v0.1.0** — first release of the M0/M1 coordination core (compare-and-swap store, tenant keys, HTTP sessions/messages, jobs + tenant API-key auth packages). Session attach, notify plane, and Code offload end-to-end come later.
 
 ## What’s in this release
 
-- **CAS store** — durable JSON objects in memory or on S3-compatible backends (Cloudflare R2 ready), with compare-and-swap / ETag
+- **Compare-and-swap (CAS) store** — JSON objects in memory or on S3-compatible backends (Cloudflare R2 ready). Each object has an ETag. An update sends `If-Match` with the ETag you last saw; a mismatch is rejected so two writers cannot silently overwrite each other. See [Compare-and-swap](#compare-and-swap).
 - **Tenant key layout** — org → project object keys for sessions, thread messages, jobs, and desired-state docs
 - **HTTP API (serve path)**, all `/v1` routes behind tenant API-key auth
   - `GET /healthz` (open, no key required)
@@ -19,6 +19,14 @@ Multi-tenant coordination plane for the Aixgo ecosystem. Durable JSON for sessio
   - Jobs: `POST` create, `GET` by id, `POST .../claim` (CAS)
 - **Tenant API-key auth** — project-scoped bearer keys (`SYNC_API_KEYS`, SHA-256 hashed in memory, cross-tenant `403`), deny-by-default, enforced on the running binary
 - **Packaging** — multi-stage `scratch` image with CA certs for outbound TLS; `make check`, `make build`, `make docker`
+
+## Compare-and-swap
+
+CAS is compare-and-swap. Sync stores JSON documents, not rows in a SQL database. Each document has an ETag, a version stamp from the last write.
+
+An update sends that stamp as `If-Match`. The write succeeds only if the document is still the version you read. If another worker wrote first, Sync returns HTTP `412 Precondition Failed` and you read again.
+
+That is the concurrency model. Two agents can share a session or claim a job without silently overwriting each other. There is no CRDT and no SQL query plane.
 
 ## Develop
 
@@ -72,7 +80,7 @@ Health: `http://localhost:8080/healthz`.
 
 ## S3-compatible / Cloudflare R2
 
-`S3Store` is a CAS key-value store on S3-compatible APIs. Configure it with environment variables. If `SYNC_S3_BUCKET` is unset, the server uses the in-memory store.
+`S3Store` is the object-storage backend for that compare-and-swap map. Configure it with environment variables. If `SYNC_S3_BUCKET` is unset, the server uses the in-memory store.
 
 ### Environment variables
 
